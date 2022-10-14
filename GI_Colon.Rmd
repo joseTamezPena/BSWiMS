@@ -1,0 +1,211 @@
+---
+title: "GI_Video"
+author: "Jose Tamez"
+date: "`r Sys.Date()`"
+output: 
+  word_document: 
+    reference_docx: WordStyle_FRESA.docx
+    toc: yes
+    fig_caption: yes
+  html_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE,comment = "#>")
+```
+
+
+## MI Analysis with BSWiMS
+
+### Loading the libraries
+
+```{r}
+library("FRESA.CAD")
+library(readxl)
+library(vioplot)
+library(igraph)
+
+op <- par(no.readonly = TRUE)
+pander::panderOptions('digits', 3)
+pander::panderOptions('table.split.table', 400)
+pander::panderOptions('keep.trailing.zeros',TRUE)
+
+```
+
+### Data Loading
+
+Source:
+https://archive.ics.uci.edu/ml/datasets/Gastrointestinal+Lesions+in+Regular+Colonoscopy
+
+
+
+```{r}
+
+
+GI_Cancer <- as.data.frame(read_excel("Data/GI/data.xlsx", sheet = "Sheet1"))
+
+GI_Cancer_1 <- subset(GI_Cancer,V2==1)
+GI_Cancer_1$V2 <- NULL
+rownames(GI_Cancer_1) <- GI_Cancer_1$ID
+GI_Cancer_1$ID <- NULL
+GI_Class <- GI_Cancer_1$V1
+GI_Cancer_1$class <- GI_Class
+GI_Cancer_1$V1 <- NULL
+
+GI_Cancer_2 <- subset(GI_Cancer,V2==2)
+GI_Cancer_2$V2 <- NULL
+rownames(GI_Cancer_2) <- GI_Cancer_2$ID
+GI_Cancer_2$ID <- NULL
+GI_Cancer_2$V1 <- NULL
+colnames(GI_Cancer_2) <- paste("NBI",colnames(GI_Cancer_2),sep="_")
+
+GI_Cancer <- cbind(GI_Cancer_1,GI_Cancer_2)
+
+table(GI_Cancer$class)
+
+GI_Cancer$class <- 1*(GI_Cancer$class==1)
+
+table(GI_Cancer$class)
+
+
+```
+
+### Correlation Matrix of the Parkinson Data
+
+The heat-map of the correlation:
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+cormat <- cor(GI_Cancer,method="spearman")
+cormat[is.na(cormat)] <- 0
+
+gplots::heatmap.2(abs(cormat),
+                  trace = "none",
+                  scale = "none",
+                  mar = c(10,10),
+                  col=rev(heat.colors(5)),
+                  main = "Raw Correlation",
+                  cexRow = 0.35,
+                  cexCol = 0.35,
+                  key.title=NA,
+                  key.xlab="Spearman Correlation",
+                  xlab="Feature", ylab="Feature",
+)
+
+
+
+```
+
+## ML
+
+```{r}
+
+cvBSWiMSRaw <- randomCV(GI_Cancer,
+                 "class",
+                 fittingFunction= BSWiMS.model,
+                 classSamplingType = "LOO",
+                 trainFraction = 0.99,
+                 repetitions = 55
+ )
+bpraw <- predictionStats_binary(cvBSWiMSRaw$medianTest,"BSWiMS RAW",cex=0.90)
+pander::pander(bpraw$CM.analysis$tab)
+pander::pander(bpraw$accc)
+pander::pander(bpraw$aucs)
+pander::pander(bpraw$berror)
+
+
+cvLASSORaw <- randomCV(GI_Cancer,
+                        "class",
+                        fittingFunction= LASSO_1SE,
+                        trainSampleSets= cvBSWiMSRaw$trainSamplesSets,
+                        family="binomial"
+)
+bpraw <- predictionStats_binary(cvLASSORaw$medianTest,"LASSO RAW",cex=0.90)
+pander::pander(bpraw$CM.analysis$tab)
+pander::pander(bpraw$accc)
+pander::pander(bpraw$aucs)
+pander::pander(bpraw$berror)
+
+
+
+cvBSWiMSDecor <- randomCV(GI_Cancer,
+                 "class",
+                 trainSampleSets= cvBSWiMSRaw$trainSamplesSets,
+                 fittingFunction= filteredFit,
+                 fitmethod=BSWiMS.model,
+                 filtermethod=NULL,
+                 DECOR = TRUE,
+                 DECOR.control=list(Outcome="class"),
+ )
+bpraw <- predictionStats_binary(cvBSWiMSDecor$medianTest,"BSWiMS Decor",cex=0.90)
+pander::pander(bpraw$CM.analysis$tab)
+pander::pander(bpraw$accc)
+pander::pander(bpraw$aucs)
+pander::pander(bpraw$berror)
+
+
+```
+### The BSWiMS formula
+
+```{r}
+bm <- BSWiMS.model(class~.,GI_Cancer,NumberofRepeats = 20)
+
+```
+
+### The formula network
+
+```{r}
+cmax <- apply(bm$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.5])
+cmax <- cmax[cnames]
+
+adma <- bm$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.25] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     vertex.size=20*cmax,
+     vertex.label.cex=0.5,
+     vertex.label.dist=0,
+     main="Original Feature Association")
+
+```
+
+### With Decorrelated Data
+
+```{r}
+
+GI_Decorrelated <- GDSTMDecorrelation(GI_Cancer,Outcome="class",thr=0.8,verbose = TRUE)
+bmDe <- BSWiMS.model(class~.,GI_Decorrelated,NumberofRepeats = 20)
+
+```
+
+
+### The formula network
+
+```{r}
+cmax <- apply(bmDe$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.5])
+cmax <- cmax[cnames]
+adma <- bmDe$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.25] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     vertex.size=20*cmax,
+     vertex.label.cex=0.5,
+     vertex.label.dist=0,
+     main="Original Feature Association")
+
+```

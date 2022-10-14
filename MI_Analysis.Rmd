@@ -1,0 +1,140 @@
+---
+title: "MiocardiumInfraction"
+author: "Jose Tamez"
+date: "`r Sys.Date()`"
+output: 
+  word_document: 
+    reference_docx: WordStyle_FRESA.docx
+    toc: yes
+    fig_caption: yes
+  html_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE,comment = "#>")
+```
+
+
+## MI Analysis with BSWiMS
+
+### Loading the libraries
+
+```{r}
+library("FRESA.CAD")
+library(readxl)
+library(vioplot)
+library(igraph)
+
+op <- par(no.readonly = TRUE)
+pander::panderOptions('digits', 3)
+pander::panderOptions('table.split.table', 400)
+pander::panderOptions('keep.trailing.zeros',TRUE)
+
+```
+
+## Load the Data
+
+```{r}
+trainFraction <- 0.85
+
+MI <- as.data.frame(read_excel("Data/MI/MI.xlsx", sheet = "MI",range = "A2:DV1702",na = "?"))
+rownames(MI) <- MI$ID
+MI$ID <- NULL
+remcol <- numeric(ncol(MI))
+names(remcol) <- colnames(MI)
+torm <- 0.05*nrow(MI)
+for (cn in colnames(MI))
+{
+  remcol[cn] <- sum(is.na(MI[,cn]))>torm
+}
+MIC <- MI[,!remcol]
+MIC$FIBR_PREDS <- NULL
+MIC$PREDS_TAH <- NULL
+MIC$JELUD_TAH <- NULL
+MIC$FIBR_JELUD <- NULL
+MIC$A_V_BLOK <- NULL
+MIC$OTEK_LANC <- NULL
+MIC$RAZRIV <- NULL
+MIC$DRESSLER <- NULL
+MIC$ZSN <- NULL
+MIC$REC_IM <- NULL
+MIC$P_IM_STEN <- NULL
+MIC$LET_IS <- NULL
+MIC$Complications <- NULL
+
+NoCompOrAlive <- MIC$NoCompOrAlive
+names(NoCompOrAlive) <- rownames(MIC)
+MI_MF <- as.data.frame(model.matrix(NoCompOrAlive~.,MIC))
+MI_MF$`(Intercept)` <- NULL
+MI_MF$class <- NoCompOrAlive[rownames(MI_MF)]
+colnames(MI_MF) <- str_replace_all(colnames(MI_MF),"`","")
+colnames(MI_MF) <- str_replace_all(colnames(MI_MF)," ","")
+table(MI_MF$class)
+
+```
+
+## Training testing
+```{r}
+caseSet <- subset(MI_MF, class == 1)
+controlSet <- subset(MI_MF, class == 0)
+caseTrainSize <- nrow(caseSet)*trainFraction;
+controlTrainSize <- nrow(controlSet)*trainFraction;
+sampleCaseTrain <- sample(nrow(caseSet),caseTrainSize)
+sampleControlTrain <- sample(nrow(controlSet),controlTrainSize)
+trainSet <- rbind(caseSet[sampleCaseTrain,], controlSet[sampleControlTrain,])
+testSet <-  rbind(caseSet[-sampleCaseTrain,],controlSet[-sampleControlTrain,])
+pander::pander(table(trainSet$class))
+pander::pander(table(testSet$class))
+
+```
+
+```{r}
+
+cormat <- cor(trainSet,method="spearman")
+cormat[is.na(cormat)] <- 0
+gplots::heatmap.2(abs(cormat),
+                  trace = "none",
+                  scale = "none",
+                  mar = c(10,10),
+                  col=rev(heat.colors(5)),
+                  main = "Raw Correlation",
+                  cexRow = 0.35,
+                  cexCol = 0.35,
+                  key.title=NA,
+                  key.xlab="Spearman Correlation",
+                  xlab="Feature", ylab="Feature",
+)
+
+
+```
+
+
+```{r}
+mlasso <- LASSO_1SE(class~.,trainSet,family="binomial")
+mlasso$selectedfeatures
+plasso <- predict(mlasso,testSet)
+plasso <- 1.0/(1.0+exp(-plasso))
+bs <- predictionStats_binary(cbind(testSet$class,plasso),"LASSO",cex=0.90)
+plasso <- predict(mlasso,trainSet)
+plasso <- 1.0/(1.0+exp(-plasso))
+bs <- predictionStats_binary(cbind(trainSet$class,plasso),"LASSO",cex=0.90)
+
+
+mBS <- BSWiMS.model(class~.,trainSet,NumberofRepeats = 5)
+mBS$selectedfeatures
+pBS <- predict(mBS,testSet)
+bs <- predictionStats_binary(cbind(testSet$class,pBS),"BSWiMS",cex=0.90)
+mBS$formula.list
+mBS$bagging$Jaccard.SM
+
+pBS <- predict(mBS,trainSet)
+bs <- predictionStats_binary(cbind(trainSet$class,pBS),"BSWiMS",cex=0.90)
+
+```
+

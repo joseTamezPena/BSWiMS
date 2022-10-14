@@ -1,0 +1,143 @@
+---
+title: "MiocardiumInfraction"
+author: "Jose Tamez"
+date: "`r Sys.Date()`"
+output: 
+  word_document: 
+    reference_docx: WordStyle_FRESA.docx
+    toc: yes
+    fig_caption: yes
+  html_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE,comment = "#>")
+```
+
+
+## MI Analysis with BSWiMS
+
+### Loading the libraries
+
+```{r}
+library("FRESA.CAD")
+library(readxl)
+library(vioplot)
+library(igraph)
+library(foreign)
+op <- par(no.readonly = TRUE)
+pander::panderOptions('digits', 3)
+pander::panderOptions('table.split.table', 400)
+pander::panderOptions('keep.trailing.zeros',TRUE)
+
+```
+
+## Load the Data
+
+```{r}
+trainFraction <- 0.85
+
+boneMarrow <- as.data.frame(read.arff("Data/bone-marrow.arff"))
+status <- boneMarrow$survival_status
+#boneMarrow$Relapse <- NULL
+options(na.action = 'na.pass')
+boneMarrow_mat <- cbind(status = boneMarrow$survival_status,
+             survival_time = boneMarrow$survival_time,
+             as.data.frame(model.matrix(Surv(survival_time,survival_status) ~ .*.,boneMarrow))[-1])
+fnames <- colnames(boneMarrow_mat)
+fnames <- str_replace_all(fnames,":","__")
+colnames(boneMarrow_mat) <- fnames
+#boneMarrowImputed <- nearestNeighborImpute(boneMarrow_mat)
+boneMarrowImputed <- boneMarrow_mat[complete.cases(boneMarrow_mat),]
+
+table(boneMarrowImputed$status)
+
+```
+
+```{r}
+
+cormat <- cor(boneMarrowImputed,method="spearman")
+cormat[is.na(cormat)] <- 0
+gplots::heatmap.2(abs(cormat),
+                  trace = "none",
+                  scale = "none",
+                  mar = c(10,10),
+                  col=rev(heat.colors(5)),
+                  main = "Raw Correlation",
+                  cexRow = 0.35,
+                  cexCol = 0.35,
+                  key.title=NA,
+                  key.xlab="Spearman Correlation",
+                  xlab="Feature", ylab="Feature",
+)
+
+
+```
+## Surv Models
+```{r}
+md <- BSWiMS.model(formula = Surv(survival_time, status) ~ 1, data = boneMarrowImputed,pvalue=0.1,NumberofRepeats = 10)
+
+md$formula.list
+
+sm <- summary(md)
+sm$coefficients
+
+```
+
+
+### The formula network
+
+```{r}
+cmax <- apply(md$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.25])
+cmax <- cmax[cnames]
+
+adma <- md$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.25] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     vertex.size=20*cmax,
+     vertex.label.cex=0.75,
+     vertex.label.dist=0,
+     main="Feature Association")
+
+```
+
+
+
+## ML
+
+```{r}
+cvBSWiMSRaw <- randomCV(boneMarrowImputed,
+                 theOutcome = Surv(survival_time,status)~1,
+                 fittingFunction= BSWiMS.model,
+                 classSamplingType = "Pro",
+                 trainFraction = 0.90,
+                 repetitions = 100,
+                 pvalue=0.1,
+                 NumberofRepeats = 10
+ )
+cvBSWiMSRaw$featureFrequency
+bpraw <- predictionStats_survival(cvBSWiMSRaw$survMedianTest,"BSWiMS RAW",cex=0.90)
+bpraw <- predictionStats_binary(cvBSWiMSRaw$medianTest,"BSWiMS RAW",cex=0.90)
+pander::pander(bpraw$CM.analysis$tab)
+pander::pander(bpraw$accc)
+pander::pander(bpraw$aucs)
+pander::pander(bpraw$berror)
+
+
+
+```
+
+
+

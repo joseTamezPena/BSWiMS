@@ -230,7 +230,7 @@ TADPOLECrossMRITest <- TADPOLECrossMRI[-trainSet,]
 ### Learning ADAS13
 
 ```{r}
-bml <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrain,maxTrainModelSize=3,NumberofRepeats = 20)
+bml <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrain,maxTrainModelSize=20,NumberofRepeats = 20,pvalue=0.001)
 pander::pander(bml$bagging$Jaccard.SM)
 fs <- bml$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
@@ -313,7 +313,9 @@ pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
 
 prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(bDXml,TADPOLE_DX_TEST)),"MCI vs AD")
 pander::pander(prBin$aucs)
-
+pander::pander(prBin$accc)
+pander::pander(prBin$berror)
+pander::pander(prBin$sensitivity)
 
 ```
 
@@ -355,7 +357,7 @@ MCIPrognosisIDs <- c(MCIconverters$PTID,MCI_No_converters$PTID)
 TADPOLECrossMRI <- validBaselineTadpole[MCIPrognosisIDs,]
 table(TADPOLECrossMRI$DX)
 TADPOLECrossMRI$DX <- NULL
-TADPOLECrossMRI$status <- rownames(TADPOLECrossMRI) %in% MCIconverters$PTID
+TADPOLECrossMRI$status <- 1*(rownames(TADPOLECrossMRI) %in% MCIconverters$PTID)
 table(TADPOLECrossMRI$status)
 TADPOLECrossMRI$TimeToEvent <- numeric(nrow(TADPOLECrossMRI))
 TADPOLECrossMRI[MCIconverters$PTID,"TimeToEvent"] <- MCIconverters$TimeToEvent
@@ -370,6 +372,8 @@ TADPOLE_Conv_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[train
 TADPOLE_Conv_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in%
                                          rownames(TADPOLE_Conv_TRAIN)),]
 
+pander::pander(table(TADPOLE_Conv_TRAIN$status))
+pander::pander(table(TADPOLE_Conv_TEST$status))
 
 ```
 
@@ -385,19 +389,26 @@ pander::pander(sm$coefficients)
 pander::pander(bConvml$univariate[bConvml$selectedfeatures,])
 
 ptestl <- predict(bConvml,TADPOLE_Conv_TEST,type="lp")
-pteste <- predict(bConvml,TADPOLE_Conv_TEST,type="expected")
+boxplot(ptestl~TADPOLE_Conv_TEST$status)
 ptestr <- predict(bConvml,TADPOLE_Conv_TEST,type="risk")
+eventCases <- subset(TADPOLE_Conv_TEST,status==1)
+plot(1.0/ptestr[rownames(eventCases)]~eventCases$TimeToEvent)
+pander::pander(cor.test(eventCases$TimeToEvent,1.0/ptestr[rownames(eventCases)],method="spearman"))
+
+
+
 perdsurv <- cbind(TADPOLE_Conv_TEST$TimeToEvent,
                   TADPOLE_Conv_TEST$status,
-                  ptestl,ptestl,
-                  pteste,
+                  ptestl,
                   ptestr)
 prSurv <- predictionStats_survival(perdsurv,"MCI to  AD Conversion")
-prSurv$CIFollowUp
-prSurv$CIRisk
+pander::pander(prSurv$CIRisk)
+pander::pander(prSurv$CILp)
+pander::pander(prSurv$spearmanCI)
 
-prBin <- predictionStats_binary(cbind(TADPOLE_Conv_TEST$status,predict(bConvml,TADPOLE_Conv_TEST,type="lp")),"MCI to  AD Conversion")
+prBin <- predictionStats_binary(cbind(TADPOLE_Conv_TEST$status,ptestl),"MCI to  AD Conversion")
 pander::pander(prBin$aucs)
+pander::pander(prBin$CM.analysis$tab)
 
 
 ```
@@ -409,22 +420,22 @@ pander::pander(prBin$aucs)
 
 ```{r}
 cmax <- apply(bConvml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
 adma <- bConvml$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.10] <- 0;
+adma[adma<0.20] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
 fc <- cluster_optimal(gr)
 plot(fc, gr,
-     edge.width=2*E(gr)$weight,
+     edge.width=5*E(gr)$weight,
      vertex.size=20*cmax,
      vertex.label.cex=0.75,
      vertex.label.dist=0,
-     main="ADAS13 Feature Association")
+     main="MCI to Dementia Conversion")
 
 ```
 

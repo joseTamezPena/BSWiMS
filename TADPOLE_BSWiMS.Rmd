@@ -100,27 +100,39 @@ RightFields <- TADPOLE_D1_D2_Dict_LR$RFN
 names(RightFields) <- RightFields
 RightFields <- RightFields[RightFields %in% colnames(validBaselineTadpole)]
 
+## Normalize to ICV
+validBaselineTadpole$Ventricles=validBaselineTadpole$Ventricles/validBaselineTadpole$ICV
+validBaselineTadpole$Hippocampus=validBaselineTadpole$Hippocampus/validBaselineTadpole$ICV
+validBaselineTadpole$WholeBrain=validBaselineTadpole$WholeBrain/validBaselineTadpole$ICV
+validBaselineTadpole$Entorhinal=validBaselineTadpole$Entorhinal/validBaselineTadpole$ICV
+validBaselineTadpole$Fusiform=validBaselineTadpole$Fusiform/validBaselineTadpole$ICV
+validBaselineTadpole$MidTemp=validBaselineTadpole$MidTemp/validBaselineTadpole$ICV
+
 leftData <- validBaselineTadpole[,LeftFields]/validBaselineTadpole$ICV
 RightData <- validBaselineTadpole[,RightFields]/validBaselineTadpole$ICV
 
+## get mean and relative difference 
 meanLeftRight <- (leftData + RightData)/2
 difLeftRight <- abs(leftData - RightData)
-reldifLeftRight <- difLeftRight/meanLeftRight
+reldifLeftRight <- (100*difLeftRight/meanLeftRight)^(1/3)
 colnames(meanLeftRight) <- paste("M",colnames(meanLeftRight),sep="_")
 colnames(difLeftRight) <- paste("D",colnames(difLeftRight),sep="_")
 colnames(reldifLeftRight) <- paste("RD",colnames(reldifLeftRight),sep="_")
+
 
 validBaselineTadpole <- validBaselineTadpole[,!(colnames(validBaselineTadpole) %in% 
                                                c(LeftFields,RightFields))]
 validBaselineTadpole <- cbind(validBaselineTadpole,meanLeftRight,reldifLeftRight)
 
-nacount <- apply(is.na(validBaselineTadpole),2,sum)/nrow(validBaselineTadpole) < 0.05
+## Remove columns with too many NA more than %15 of NA
+nacount <- apply(is.na(validBaselineTadpole),2,sum)/nrow(validBaselineTadpole) < 0.15
 diagnose <- validBaselineTadpole$DX
 table(diagnose)
-
 validBaselineTadpole <- validBaselineTadpole[,nacount]
+## Remove character columns
 ischar <- sapply(validBaselineTadpole,class) == "character"
 validBaselineTadpole <- validBaselineTadpole[,!ischar]
+## Place back diagnose
 validBaselineTadpole$DX <- diagnose
 
 
@@ -144,6 +156,8 @@ validDX <- c("NL","MCI","Dementia")
 validBaselineTadpole <- validBaselineTadpole[validBaselineTadpole$DX %in% validDX,]
 validBaselineTadpole$DX <- as.factor(validBaselineTadpole$DX)
 pander::pander(table(validBaselineTadpole$DX))
+
+
 
 ```
 
@@ -226,6 +240,8 @@ trainSet <- sample(nrow(TADPOLECrossMRI),nrow(TADPOLECrossMRI)*TrainFraction)
 TADPOLECrossMRITrain <- TADPOLECrossMRI[trainSet,]
 TADPOLECrossMRITest <- TADPOLECrossMRI[-trainSet,]
 
+TADPOLECrossMRITrain <- GDSTMDecorrelation(TADPOLECrossMRITrain,thr=0.8,verbose = TRUE)
+TADPOLECrossMRITest <-  predictDecorrelate(TADPOLECrossMRITrain,TADPOLECrossMRITest)
 ```
 ### Learning ADAS13
 
@@ -273,7 +289,7 @@ plot(fc, gr,
 
 ### the set
 ```{r}
-TrainFraction <- 0.5;
+TrainFraction <- 0.60;
 
 TADPOLECrossMRI <- subset(validBaselineTadpole,DX == "Dementia" | DX == "MCI")
 table(TADPOLECrossMRI$DX)
@@ -296,6 +312,9 @@ trainControlSet <- sample(nrow(TADPOLE_Controls),nrow(TADPOLE_Controls)*TrainFra
 
 TADPOLE_DX_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[trainControlSet,])
 TADPOLE_DX_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in% rownames(TADPOLE_DX_TRAIN)),]
+TADPOLE_DX_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_TRAIN,Outcome="DX",thr=0.8,verbose = TRUE)
+TADPOLE_DX_TESTD <-  predictDecorrelate(TADPOLE_DX_TRAIND,TADPOLE_DX_TEST)
+table(TADPOLE_DX_TEST$DX)
 
 
 ```
@@ -311,15 +330,13 @@ sm <- summary(bDXml)
 pander::pander(sm$coefficients)
 pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(bDXml,TADPOLE_DX_TEST)),"MCI vs AD")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(bDXml,TADPOLE_DX_TEST)),"MCI vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
 pander::pander(prBin$sensitivity)
 
 ```
-
-
 
 
 ### The formula network
@@ -331,7 +348,7 @@ cmax <- cmax[cnames]
 
 adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.10] <- 0;
+adma[adma<0.20] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -339,18 +356,100 @@ fc <- cluster_optimal(gr)
 plot(fc, gr,
      edge.width=10*E(gr)$weight,
      vertex.size=10*cmax,
-     vertex.label.cex=0.5,
+     vertex.label.cex=0.75,
      vertex.label.dist=0,
-     main="ADAS13 Feature Association")
+     main="MCI vs Dementia Diagnosis")
 
 ```
+
+
+
+## Diagnosis NL vs AD
+
+### the set
+```{r}
+TrainFraction <- 0.60;
+
+table(validBaselineTadpole$DX)
+
+TADPOLECrossMRI <- subset(validBaselineTadpole,DX == "Dementia" | DX == "NL")
+table(TADPOLECrossMRI$DX)
+
+TADPOLECrossMRI$DX <- 1*(as.character(TADPOLECrossMRI$DX) == "Dementia")
+table(TADPOLECrossMRI$DX)
+TADPOLECrossMRI$ADAS13 <- NULL
+TADPOLECrossMRI$ADAS11 <- NULL
+TADPOLECrossMRI$MMSE <- NULL
+TADPOLECrossMRI$RAVLT_immediate <- NULL
+TADPOLECrossMRI$RAVLT_learning <- NULL
+TADPOLECrossMRI$RAVLT_perc_forgetting <- NULL
+TADPOLECrossMRI$RAVLT_forgetting <- NULL
+TADPOLECrossMRI$FAQ <- NULL
+
+TADPOLE_Cases <- subset(TADPOLECrossMRI,DX==1)
+TADPOLE_Controls <- subset(TADPOLECrossMRI,DX==0)
+trainCasesSet <- sample(nrow(TADPOLE_Cases),nrow(TADPOLE_Cases)*TrainFraction)
+trainControlSet <- sample(nrow(TADPOLE_Controls),nrow(TADPOLE_Controls)*TrainFraction)
+
+TADPOLE_DX_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[trainControlSet,])
+TADPOLE_DX_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in% rownames(TADPOLE_DX_TRAIN)),]
+TADPOLE_DX_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_TRAIN,Outcome="DX",thr=0.8,verbose = TRUE)
+TADPOLE_DX_TESTD <-  predictDecorrelate(TADPOLE_DX_TRAIND,TADPOLE_DX_TEST)
+table(TADPOLE_DX_TEST$DX)
+
+
+```
+
+
+```{r}
+bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIN,NumberofRepeats = 20)
+pander::pander(bDXml$bagging$Jaccard.SM)
+
+fs <- bDXml$bagging$frequencyTable
+barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
+sm <- summary(bDXml)
+pander::pander(sm$coefficients)
+pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
+
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(bDXml,TADPOLE_DX_TEST)),"NL vs Dementia")
+pander::pander(prBin$aucs)
+pander::pander(prBin$accc)
+pander::pander(prBin$berror)
+pander::pander(prBin$sensitivity)
+
+```
+
+
+### The formula network
+
+```{r}
+cmax <- apply(bDXml$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.5])
+cmax <- cmax[cnames]
+
+adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.20] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     edge.width=10*E(gr)$weight,
+     vertex.size=10*cmax,
+     vertex.label.cex=0.75,
+     vertex.label.dist=0,
+     main="NL vs Dementia Diagnosis")
+
+```
+
 
 
 ## Prognosis MCI to AD Conversion
 
 ### the set
 ```{r}
-TrainFraction <- 0.5;
+TrainFraction <- 0.60;
 
 MCIPrognosisIDs <- c(MCIconverters$PTID,MCI_No_converters$PTID)
 
@@ -420,7 +519,7 @@ pander::pander(prBin$CM.analysis$tab)
 
 ```{r}
 cmax <- apply(bConvml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.25])
+cnames <- names(cmax[cmax>=0.5])
 cmax <- cmax[cnames]
 
 adma <- bConvml$bagging$formulaNetwork[cnames,cnames]

@@ -603,6 +603,10 @@ pander::pander(table(TADPOLE_Conv_TRAIN$status))
 pander::pander(table(TADPOLE_Conv_TEST$status))
 par(op)
 
+
+TADPOLE_Conv_TRAIND <- GDSTMDecorrelation(TADPOLE_Conv_TRAIN,Outcome="status",thr=0.8,verbose = TRUE)
+TADPOLE_Conv_TESTD <-  predictDecorrelate(TADPOLE_Conv_TRAIND,TADPOLE_Conv_TEST)
+
 ```
 
 
@@ -669,4 +673,69 @@ par(op)
 
 ```
 
+### Decorrelated
+
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+bConvml <- BSWiMS.model(Surv(TimeToEvent,status)~1,TADPOLE_Conv_TRAIND,NumberofRepeats = 20)
+pander::pander(bConvml$bagging$Jaccard.SM)
+
+fs <- bConvml$bagging$frequencyTable
+barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
+sm <- summary(bConvml)
+pander::pander(sm$coefficients)
+pander::pander(bConvml$univariate[bConvml$selectedfeatures,])
+
+ptestl <- predict(bConvml,TADPOLE_Conv_TESTD,type="lp")
+boxplot(ptestl~TADPOLE_Conv_TEST$status)
+ptestr <- predict(bConvml,TADPOLE_Conv_TEST,type="risk")
+eventCases <- subset(TADPOLE_Conv_TEST,status==1)
+plot(1.0/ptestr[rownames(eventCases)]~eventCases$TimeToEvent)
+pander::pander(cor.test(eventCases$TimeToEvent,1.0/ptestr[rownames(eventCases)],method="spearman"))
+
+
+
+perdsurv <- cbind(TADPOLE_Conv_TEST$TimeToEvent,
+                  TADPOLE_Conv_TEST$status,
+                  ptestl,
+                  ptestr)
+prSurv <- predictionStats_survival(perdsurv,"MCI to  AD Conversion")
+pander::pander(prSurv$CIRisk)
+pander::pander(prSurv$CILp)
+pander::pander(prSurv$spearmanCI)
+
+prBin <- predictionStats_binary(cbind(TADPOLE_Conv_TESTD$status,ptestl),"MCI to  AD Conversion")
+pander::pander(prBin$aucs)
+pander::pander(prBin$CM.analysis$tab)
+
+par(op)
+
+```
+
+
+
+
+### The formula network
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+cmax <- apply(bConvml$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.5])
+cmax <- cmax[cnames]
+
+adma <- bConvml$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.20] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     edge.width=5*E(gr)$weight,
+     vertex.size=20*cmax,
+     vertex.label.cex=0.75,
+     vertex.label.dist=0,
+     main="MCI to Dementia Conversion")
+par(op)
+
+```
 

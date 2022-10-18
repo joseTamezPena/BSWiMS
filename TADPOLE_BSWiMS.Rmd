@@ -3,14 +3,14 @@ title: "TADPOLE_BSWiMS"
 author: "Jose Tamez"
 date: "`r Sys.Date()`"
 output: 
-  word_document: 
-    reference_docx: WordStyle_FRESA.docx
-    toc: yes
-    fig_caption: yes
   html_document: 
     toc: yes
     fig_caption: yes
     number_sections: yes
+  word_document: 
+    reference_docx: WordStyle_FRESA.docx
+    toc: yes
+    fig_caption: yes
 editor_options:
   chunk_output_type: console
 ---
@@ -21,12 +21,13 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE,comment = "#>")
 ```
 
+# TADPOLE and BSWiMS
+
 ### Loading the libraries
 
 ```{r}
 library("FRESA.CAD")
 library(readxl)
-library(vioplot)
 library(igraph)
 op <- par(no.readonly = TRUE)
 pander::panderOptions('digits', 3)
@@ -35,6 +36,7 @@ pander::panderOptions('keep.trailing.zeros',TRUE)
 
 ```
 
+## The data set
 
 ```{r}
 TADPOLE_D1_D2 <- read.csv("~/GitHub/BSWiMS/Data/TADPOLE/TADPOLE_D1_D2.csv")
@@ -46,6 +48,7 @@ rownames(TADPOLE_D1_D2_Dict) <- TADPOLE_D1_D2_Dict$FLDNAME
 
 ```
 
+## Conditioning the data
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
@@ -206,17 +209,25 @@ MCI_No_converters <- MCIatBaseline[!(baseMCI %in% MCIconverters$PTID),]
 MCIconverters$TimeToEvent <- (as.Date(toDementia[MCIconverters$PTID,"EXAMDATE"]) 
                                    - as.Date(MCIconverters$EXAMDATE))
 
+sum(MCIconverters$TimeToEvent ==0)
+
+
 MCIconverters$AtEventDX <- MCIatEvent[MCIconverters$PTID,"DX"]
 MCIconverters$LastDX <- MCIatLast[MCIconverters$PTID,"DX"]
 
 MCI_No_converters$TimeToEvent <- (as.Date(lastDx[MCI_No_converters$PTID,"EXAMDATE"]) 
                                    - as.Date(MCI_No_converters$EXAMDATE))
+
 MCI_No_converters$LastDX <- MCIatLast[MCI_No_converters$PTID,"DX"]
+
+MCI_No_converters <- subset(MCI_No_converters,TimeToEvent > 0)
+
+
 
 ```
 
 
-#### Correlation Matrix  Data
+### Correlation Matrix  Data
 
 The heat map of the testing set.
 
@@ -242,9 +253,11 @@ par(op)
 ```
 
 
-## Preciting ADAS13
+# Predicting ADAS13
 
 Here we will diagnose ADAS13
+
+## Training and testing sets
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
@@ -267,13 +280,11 @@ trainSet <- sample(nrow(TADPOLECrossMRI),nrow(TADPOLECrossMRI)*TrainFraction)
 TADPOLECrossMRITrain <- TADPOLECrossMRI[trainSet,]
 TADPOLECrossMRITest <- TADPOLECrossMRI[-trainSet,]
 
-TADPOLECrossMRITrain <- GDSTMDecorrelation(TADPOLECrossMRITrain,thr=0.8,verbose = TRUE)
-TADPOLECrossMRITest <-  predictDecorrelate(TADPOLECrossMRITrain,TADPOLECrossMRITest)
 ```
 ### Learning ADAS13
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bml <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrain,maxTrainModelSize=20,NumberofRepeats = 20,pvalue=0.001)
+bml <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrain,maxTrainModelSize=50,NumberofRepeats = 20)
 pander::pander(bml$bagging$Jaccard.SM)
 fs <- bml$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
@@ -288,12 +299,11 @@ par(op)
 ```
 
 
-
 ### The formula network
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 cmax <- apply(bml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.50])
+cnames <- names(cmax[cmax>=0.250])
 cmax <- cmax[cnames]
 
 adma <- bml$bagging$formulaNetwork[cnames,cnames]
@@ -313,8 +323,180 @@ par(op)
 
 ```
 
+### The  ADAS13 table
+```{r}
 
-## Diagnosis MCI vs AD
+clusterFeatures <- fc$names
+sm$coefficients$Rx2 <- (sm$coefficients$r.MSE-sm$coefficients$model.MSE)/sm$coefficients$r.MSE
+
+tableADAS13 <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "mean",
+                                     "upper",
+                                     "model.MSE",
+                                     "Rx2",
+                                     "F.pvalue",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableADAS13$Cluster <- nugget[rownames(tableADAS13)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableADAS13$Description <- description[rownames(tableADAS13)]
+pander::pander(tableADAS13)
+
+
+```
+
+### Decorrelating training and testing sets
+
+```{r}
+
+
+TADPOLECrossMRITrainD <- GDSTMDecorrelation(TADPOLECrossMRITrain,Outcome="ADAS13",
+                                        thr=0.6,
+                                        type="RLM",
+                                        method="spearman",
+                                        verbose = TRUE)
+TADPOLECrossMRITestD <-  predictDecorrelate(TADPOLECrossMRITrainD,TADPOLECrossMRITest)
+
+```
+
+## Decorrelated
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+bmlD <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrainD,maxTrainModelSize=50,NumberofRepeats = 20)
+pander::pander(bmlD$bagging$Jaccard.SM)
+fs <- bmlD$bagging$frequencyTable
+barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
+sm <- summary(bmlD)
+pander::pander(sm$coefficients)
+pander::pander(bmlD$univariate[bmlD$selectedfeatures,])
+
+prreg <- predictionStats_regression(cbind(TADPOLECrossMRITestD$ADAS13,predict(bmlD,TADPOLECrossMRITestD)),"ADAS13")
+pander::pander(prreg)
+par(op)
+
+```
+
+
+
+### The formula network
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+cmax <- apply(bmlD$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.250])
+cmax <- cmax[cnames]
+
+adma <- bmlD$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.15] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     edge.width=5*E(gr)$weight,
+     vertex.size=20*cmax,
+     vertex.label.cex=0.5,
+     vertex.label.dist=0,
+     main="ADAS13 Feature Association")
+par(op)
+
+```
+
+
+### Decorrelated ADAS13 table
+```{r}
+
+clusterFeatures <- fc$names
+sm$coefficients$Rx2 <- (sm$coefficients$r.MSE-sm$coefficients$model.MSE)/sm$coefficients$r.MSE
+
+tableADAS13D <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "mean",
+                                     "upper",
+                                     "model.MSE",
+                                     "Rx2",
+                                     "F.pvalue",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableADAS13D$Cluster <- nugget[rownames(tableADAS13D)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+rnames <- str_replace_all(rnames,"Ba_","")
+rnames <- str_replace_all(rnames,"De_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableADAS13D$Description <- description[rownames(tableADAS13D)]
+
+## Getting the decorrelation formula
+dc <- getDerivedCoefficients(TADPOLECrossMRITrainD)
+decornames <- rownames(sm$coefficients)
+
+deNames_in_dc <- decornames[decornames %in% names(dc)]
+theDeFormulas <- dc[deNames_in_dc]
+deFromula <- character(length(theDeFormulas))
+names(deFromula) <- names(theDeFormulas)
+for (dx in names(deFromula))
+{
+  coef <- theDeFormulas[[dx]]
+  cname <- names(theDeFormulas[[dx]])
+  names(cname) <- cname
+  for (cf in names(coef))
+  {
+    if (cf != dx)
+    {
+      if (coef[cf]>0)
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("+ %5.3f*%s",coef[cf],cname[cf]))
+      }
+      else
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("%5.3f*%s",coef[cf],cname[cf]))
+      }
+    }
+  }
+}
+
+tableADAS13D$DecorFormula <- deFromula[rownames(tableADAS13D)]
+
+
+pander::pander(tableADAS13D)
+
+
+```
+
+# Diagnosis MCI vs AD
 
 ### the set
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
@@ -341,14 +523,13 @@ trainControlSet <- sample(nrow(TADPOLE_Controls),nrow(TADPOLE_Controls)*TrainFra
 
 TADPOLE_DX_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[trainControlSet,])
 TADPOLE_DX_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in% rownames(TADPOLE_DX_TRAIN)),]
-TADPOLE_DX_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_TRAIN,Outcome="DX",thr=0.8,verbose = TRUE)
-TADPOLE_DX_TESTD <-  predictDecorrelate(TADPOLE_DX_TRAIND,TADPOLE_DX_TEST)
 table(TADPOLE_DX_TEST$DX)
 
 par(op)
 
 ```
 
+### Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIN,NumberofRepeats = 20)
@@ -374,12 +555,12 @@ par(op)
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 cmax <- apply(bDXml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
 adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.20] <- 0;
+adma[adma<0.15] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -395,19 +576,71 @@ par(op)
 ```
 
 
-### Decorrelated Set
+### MCI vs AD table
+```{r}
+
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
+
+tableMCI_De <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "OR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableMCI_De$Cluster <- nugget[rownames(tableMCI_De)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableMCI_De$Description <- description[rownames(tableMCI_De)]
+pander::pander(tableMCI_De)
+
+
+```
+
+## Decorrelating the sets
+
+```{r}
+
+TADPOLE_DX_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_TRAIN,Outcome="DX",
+                                        thr=0.6,
+                                        type="RLM",
+                                        method="spearman",
+                                        verbose = TRUE)
+TADPOLE_DX_TESTD <-  predictDecorrelate(TADPOLE_DX_TRAIND,TADPOLE_DX_TEST)
+
+```
+
+### Decorrelated ML
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIND,NumberofRepeats = 20)
-pander::pander(bDXml$bagging$Jaccard.SM)
+bDXmlD <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIND,NumberofRepeats = 20)
+pander::pander(bDXmlD$bagging$Jaccard.SM)
 
-fs <- bDXml$bagging$frequencyTable
+fs <- bDXmlD$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
-sm <- summary(bDXml)
+sm <- summary(bDXmlD)
 pander::pander(sm$coefficients)
-pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
+pander::pander(bDXmlD$univariate[bDXmlD$selectedfeatures,])
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(bDXml,TADPOLE_DX_TESTD)),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(bDXmlD,TADPOLE_DX_TESTD)),"MCI vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -420,13 +653,13 @@ par(op)
 ### The formula network
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-cmax <- apply(bDXml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cmax <- apply(bDXmlD$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
-adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
+adma <- bDXmlD$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.20] <- 0;
+adma[adma<0.15] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -436,14 +669,93 @@ plot(fc, gr,
      vertex.size=10*cmax,
      vertex.label.cex=0.75,
      vertex.label.dist=0,
-     main="NL vs Dementia Diagnosis")
+     main="MCI vs Dementia Diagnosis")
 par(op)
 
 ```
 
 
+### Decorrelated MCI vs AD table
+```{r}
 
-## Diagnosis NL vs AD
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
+
+tableMCI_DeD <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "OR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableMCI_DeD$Cluster <- nugget[rownames(tableMCI_DeD)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+rnames <- str_replace_all(rnames,"Ba_","")
+rnames <- str_replace_all(rnames,"De_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableMCI_DeD$Description <- description[rownames(tableMCI_DeD)]
+
+
+
+## Getting the decorrelation formula
+dc <- getDerivedCoefficients(TADPOLE_DX_TRAIND)
+decornames <- rownames(sm$coefficients)
+
+deNames_in_dc <- decornames[decornames %in% names(dc)]
+theDeFormulas <- dc[deNames_in_dc]
+deFromula <- character(length(theDeFormulas))
+names(deFromula) <- names(theDeFormulas)
+for (dx in names(deFromula))
+{
+  coef <- theDeFormulas[[dx]]
+  cname <- names(theDeFormulas[[dx]])
+  names(cname) <- cname
+  for (cf in names(coef))
+  {
+    if (cf != dx)
+    {
+      if (coef[cf]>0)
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("+ %5.3f*%s",coef[cf],cname[cf]))
+      }
+      else
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("%5.3f*%s",coef[cf],cname[cf]))
+      }
+    }
+  }
+}
+
+tableMCI_DeD$DecorFormula <- deFromula[rownames(tableMCI_DeD)]
+
+
+
+pander::pander(tableMCI_DeD)
+
+
+```
+
+
+# Diagnosis NL vs AD
 
 ### the set
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
@@ -470,28 +782,31 @@ TADPOLE_Controls <- subset(TADPOLECrossMRI,DX==0)
 trainCasesSet <- sample(nrow(TADPOLE_Cases),nrow(TADPOLE_Cases)*TrainFraction)
 trainControlSet <- sample(nrow(TADPOLE_Controls),nrow(TADPOLE_Controls)*TrainFraction)
 
-TADPOLE_DX_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[trainControlSet,])
-TADPOLE_DX_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in% rownames(TADPOLE_DX_TRAIN)),]
-TADPOLE_DX_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_TRAIN,Outcome="DX",thr=0.8,verbose = TRUE)
-TADPOLE_DX_TESTD <-  predictDecorrelate(TADPOLE_DX_TRAIND,TADPOLE_DX_TEST)
-table(TADPOLE_DX_TEST$DX)
+TADPOLE_DX_NLDE_TRAIN <- rbind(TADPOLE_Cases[trainCasesSet,],TADPOLE_Controls[trainControlSet,])
+TADPOLE_DX_NLDE_TEST <- TADPOLECrossMRI[!(rownames(TADPOLECrossMRI) %in% rownames(TADPOLE_DX_NLDE_TRAIN)),]
+
+
+pander::pander(table(TADPOLE_DX_NLDE_TRAIN$DX))
+pander::pander(table(TADPOLE_DX_NLDE_TEST$DX))
+
+
 par(op)
 
 
 ```
 
-
+### Learning
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIN,NumberofRepeats = 20)
-pander::pander(bDXml$bagging$Jaccard.SM)
+bDXmlNLDE <- BSWiMS.model(DX~.,TADPOLE_DX_NLDE_TRAIN,NumberofRepeats = 20)
+pander::pander(bDXmlNLDE$bagging$Jaccard.SM)
 
-fs <- bDXml$bagging$frequencyTable
+fs <- bDXmlNLDE$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
-sm <- summary(bDXml)
+sm <- summary(bDXmlNLDE)
 pander::pander(sm$coefficients)
-pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
+pander::pander(bDXmlNLDE$univariate[bDXmlNLDE$selectedfeatures,])
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(bDXml,TADPOLE_DX_TEST)),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TEST$DX,predict(bDXmlNLDE,TADPOLE_DX_NLDE_TEST)),"NL vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -504,59 +819,13 @@ par(op)
 ### The formula network
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-cmax <- apply(bDXml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cmax <- apply(bDXmlNLDE$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
-adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
+adma <- bDXmlNLDE$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.20] <- 0;
-gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
-gr$layout <- layout_with_fr
-
-fc <- cluster_optimal(gr)
-plot(fc, gr,
-     edge.width=10*E(gr)$weight,
-     vertex.size=10*cmax,
-     vertex.label.cex=0.75,
-     vertex.label.dist=0,
-     main="NL vs Dementia Diagnosis")
-par(op)
-
-```
-
-### Decorrelated Set
-
-```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIND,NumberofRepeats = 20)
-pander::pander(bDXml$bagging$Jaccard.SM)
-
-fs <- bDXml$bagging$frequencyTable
-barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
-sm <- summary(bDXml)
-pander::pander(sm$coefficients)
-pander::pander(bDXml$univariate[bDXml$selectedfeatures,])
-
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(bDXml,TADPOLE_DX_TESTD)),"NL vs Dementia")
-pander::pander(prBin$aucs)
-pander::pander(prBin$accc)
-pander::pander(prBin$berror)
-pander::pander(prBin$sensitivity)
-par(op)
-
-```
-
-
-### The formula network
-
-```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-cmax <- apply(bDXml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
-cmax <- cmax[cnames]
-
-adma <- bDXml$bagging$formulaNetwork[cnames,cnames]
-
-adma[adma<0.20] <- 0;
+adma[adma<0.15] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -572,10 +841,191 @@ par(op)
 ```
 
 
+### NL vs Dementia table
+```{r}
 
-## Prognosis MCI to AD Conversion
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
-### the set
+tableNL_DE <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "OR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableNL_DE$Cluster <- nugget[rownames(tableNL_DE)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableNL_DE$Description <- description[rownames(tableNL_DE)]
+pander::pander(tableNL_DE)
+
+
+```
+
+
+## Decorrelated Set
+
+```{r}
+TADPOLE_DX_NLDE_TRAIND <- GDSTMDecorrelation(TADPOLE_DX_NLDE_TRAIN,Outcome="DX",
+                                        thr=0.6,
+                                        type="RLM",
+                                        method="spearman",
+                                        verbose = TRUE)
+TADPOLE_DX_NLDE_TESTD <-  predictDecorrelate(TADPOLE_DX_NLDE_TRAIND,TADPOLE_DX_NLDE_TEST)
+
+```
+
+### Learning 
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+
+
+bDXmlNLDED <- BSWiMS.model(DX~.,TADPOLE_DX_NLDE_TRAIND,NumberofRepeats = 20)
+pander::pander(bDXmlNLDED$bagging$Jaccard.SM)
+
+fs <- bDXmlNLDED$bagging$frequencyTable
+barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
+sm <- summary(bDXmlNLDED)
+pander::pander(sm$coefficients)
+pander::pander(bDXmlNLDED$univariate[bDXmlNLDED$selectedfeatures,])
+
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TESTD$DX,predict(bDXmlNLDED,TADPOLE_DX_NLDE_TESTD)),"NL vs Dementia")
+pander::pander(prBin$aucs)
+pander::pander(prBin$accc)
+pander::pander(prBin$berror)
+pander::pander(prBin$sensitivity)
+par(op)
+
+```
+
+
+### The formula network
+
+```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
+cmax <- apply(bDXmlNLDED$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.25])
+cmax <- cmax[cnames]
+
+adma <- bDXmlNLDED$bagging$formulaNetwork[cnames,cnames]
+
+adma[adma<0.15] <- 0;
+gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
+gr$layout <- layout_with_fr
+
+fc <- cluster_optimal(gr)
+plot(fc, gr,
+     edge.width=10*E(gr)$weight,
+     vertex.size=10*cmax,
+     vertex.label.cex=0.75,
+     vertex.label.dist=0,
+     main="NL vs Dementia Diagnosis")
+par(op)
+
+```
+
+
+
+### Decorrelated NL vs Dementia table
+```{r}
+
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
+
+tableNL_DED <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "OR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableNL_DED$Cluster <- nugget[rownames(tableNL_DED)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+rnames <- str_replace_all(rnames,"Ba_","")
+rnames <- str_replace_all(rnames,"De_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableNL_DED$Description <- description[rownames(tableNL_DED)]
+
+
+
+## Getting the decorrelation formula
+dc <- getDerivedCoefficients(TADPOLE_DX_NLDE_TRAIND)
+decornames <- rownames(sm$coefficients)
+
+deNames_in_dc <- decornames[decornames %in% names(dc)]
+theDeFormulas <- dc[deNames_in_dc]
+deFromula <- character(length(theDeFormulas))
+names(deFromula) <- names(theDeFormulas)
+for (dx in names(deFromula))
+{
+  coef <- theDeFormulas[[dx]]
+  cname <- names(theDeFormulas[[dx]])
+  names(cname) <- cname
+  for (cf in names(coef))
+  {
+    if (cf != dx)
+    {
+      if (coef[cf]>0)
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("+ %5.3f*%s",coef[cf],cname[cf]))
+      }
+      else
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("%5.3f*%s",coef[cf],cname[cf]))
+      }
+    }
+  }
+}
+
+tableNL_DED$DecorFormula <- deFromula[rownames(tableNL_DED)]
+
+
+
+pander::pander(tableNL_DED)
+
+
+```
+
+
+# Prognosis MCI to AD Conversion
+
+## the set
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 TrainFraction <- 0.60;
 
@@ -604,11 +1054,10 @@ pander::pander(table(TADPOLE_Conv_TEST$status))
 par(op)
 
 
-TADPOLE_Conv_TRAIND <- GDSTMDecorrelation(TADPOLE_Conv_TRAIN,Outcome="status",thr=0.8,verbose = TRUE)
-TADPOLE_Conv_TESTD <-  predictDecorrelate(TADPOLE_Conv_TRAIND,TADPOLE_Conv_TEST)
 
 ```
 
+### Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 bConvml <- BSWiMS.model(Surv(TimeToEvent,status)~1,TADPOLE_Conv_TRAIN,NumberofRepeats = 20)
@@ -653,12 +1102,12 @@ par(op)
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 cmax <- apply(bConvml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
 adma <- bConvml$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.20] <- 0;
+adma[adma<0.15] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -673,22 +1122,78 @@ par(op)
 
 ```
 
-### Decorrelated
 
+
+### MCI to Dementia table
+```{r}
+
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
+
+tableMCI_to_Dem <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "HR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableMCI_to_Dem$Cluster <- nugget[rownames(tableMCI_to_Dem)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+rnames <- str_replace_all(rnames,"Ba_","")
+rnames <- str_replace_all(rnames,"De_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableMCI_to_Dem$Description <- description[rownames(tableMCI_to_Dem)]
+pander::pander(tableMCI_to_Dem)
+
+
+```
+
+
+## Decorrelated
+
+```{r}
+TADPOLE_Conv_TRAIND <- GDSTMDecorrelation(TADPOLE_Conv_TRAIN,
+                                          Outcome="status",
+                                          thr=0.6,
+                                          type="RLM",
+                                          method="spearman",
+                                          verbose = TRUE)
+TADPOLE_Conv_TESTD <-  predictDecorrelate(TADPOLE_Conv_TRAIND,TADPOLE_Conv_TEST)
+
+```
+
+### Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bConvml <- BSWiMS.model(Surv(TimeToEvent,status)~1,TADPOLE_Conv_TRAIND,NumberofRepeats = 20)
-pander::pander(bConvml$bagging$Jaccard.SM)
+bConvmlD <- BSWiMS.model(Surv(TimeToEvent,status)~1,TADPOLE_Conv_TRAIND,NumberofRepeats = 20)
+pander::pander(bConvmlD$bagging$Jaccard.SM)
 
-fs <- bConvml$bagging$frequencyTable
+fs <- bConvmlD$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
-sm <- summary(bConvml)
+sm <- summary(bConvmlD)
 pander::pander(sm$coefficients)
-pander::pander(bConvml$univariate[bConvml$selectedfeatures,])
+pander::pander(bConvmlD$univariate[bConvmlD$selectedfeatures,])
 
-ptestl <- predict(bConvml,TADPOLE_Conv_TESTD,type="lp")
+ptestl <- predict(bConvmlD,TADPOLE_Conv_TESTD,type="lp")
 boxplot(ptestl~TADPOLE_Conv_TEST$status)
-ptestr <- predict(bConvml,TADPOLE_Conv_TEST,type="risk")
+ptestr <- predict(bConvmlD,TADPOLE_Conv_TESTD,type="risk")
 eventCases <- subset(TADPOLE_Conv_TEST,status==1)
 plot(1.0/ptestr[rownames(eventCases)]~eventCases$TimeToEvent)
 pander::pander(cor.test(eventCases$TimeToEvent,1.0/ptestr[rownames(eventCases)],method="spearman"))
@@ -714,17 +1219,16 @@ par(op)
 
 
 
-
 ### The formula network
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-cmax <- apply(bConvml$bagging$formulaNetwork,2,max)
-cnames <- names(cmax[cmax>=0.5])
+cmax <- apply(bConvmlD$bagging$formulaNetwork,2,max)
+cnames <- names(cmax[cmax>=0.25])
 cmax <- cmax[cnames]
 
-adma <- bConvml$bagging$formulaNetwork[cnames,cnames]
+adma <- bConvmlD$bagging$formulaNetwork[cnames,cnames]
 
-adma[adma<0.20] <- 0;
+adma[adma<0.15] <- 0;
 gr <- graph_from_adjacency_matrix(adma,mode = "undirected",diag = FALSE,weighted=TRUE)
 gr$layout <- layout_with_fr
 
@@ -736,6 +1240,92 @@ plot(fc, gr,
      vertex.label.dist=0,
      main="MCI to Dementia Conversion")
 par(op)
+
+```
+
+
+
+### Decorrelated MCI to Dementia table
+```{r}
+
+clusterFeatures <- fc$names
+sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
+
+tableMCI_to_DemD <- sm$coefficients[clusterFeatures,
+                                   c("Estimate",
+                                     "lower",
+                                     "HR",
+                                     "upper",
+                                     "full.AUC",
+                                     "DeltaAUC",
+                                     "z.IDI",
+                                     "Frequency")]
+
+nugget <- fc$membership
+names(nugget) <- clusterFeatures
+
+tableMCI_to_DemD$Cluster <- nugget[rownames(tableMCI_to_DemD)]
+
+rnames <- clusterFeatures[str_detect(clusterFeatures,"ST")]
+frnames <- rnames
+rnames <- str_replace_all(rnames,"M_","")
+rnames <- str_replace_all(rnames,"RD_","")
+rnames <- str_replace_all(rnames,"Ba_","")
+rnames <- str_replace_all(rnames,"De_","")
+description <- character()
+
+for (ddet in c(1:length(rnames)))
+{
+  description <- c(description,TADPOLE_D1_D2_Dict$TEXT[str_detect(TADPOLE_D1_D2_Dict$FLDNAME,rnames[ddet])][1])
+}
+names(description) <- frnames
+
+tableMCI_to_DemD$Description <- description[rownames(tableMCI_to_DemD)]
+
+
+## Getting the decorrelation formula
+dc <- getDerivedCoefficients(TADPOLE_Conv_TRAIND)
+decornames <- rownames(sm$coefficients)
+
+deNames_in_dc <- decornames[decornames %in% names(dc)]
+theDeFormulas <- dc[deNames_in_dc]
+deFromula <- character(length(theDeFormulas))
+names(deFromula) <- names(theDeFormulas)
+for (dx in names(deFromula))
+{
+  coef <- theDeFormulas[[dx]]
+  cname <- names(theDeFormulas[[dx]])
+  names(cname) <- cname
+  for (cf in names(coef))
+  {
+    if (cf != dx)
+    {
+      if (coef[cf]>0)
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("+ %5.3f*%s",coef[cf],cname[cf]))
+      }
+      else
+      {
+        deFromula[dx] <- paste(deFromula[dx],
+                               sprintf("%5.3f*%s",coef[cf],cname[cf]))
+      }
+    }
+  }
+}
+
+tableMCI_to_DemD$DecorFormula <- deFromula[rownames(tableMCI_to_DemD)]
+
+
+pander::pander(tableMCI_to_DemD)
+
+
+```
+
+### Saving the enviroment
+```{r}
+save.image("~/GitHub/BSWiMS/TADPOLE_BSWIMS_Results.RData")
+
 
 ```
 

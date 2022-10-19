@@ -1,5 +1,5 @@
 ---
-title: "TADPOLE_BSWiMS"
+title: "TADPOLE_LASSO"
 author: "Jose Tamez"
 date: "`r Sys.Date()`"
 output: 
@@ -21,15 +21,15 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(collapse = TRUE, warning = FALSE, message = FALSE,comment = "#>")
 ```
 
-# TADPOLE and BSWiMS
+# TADPOLE and LASSO
+LASSO Analysis
 
-### Loading the libraries
+## Loading the libraries
 
 ```{r}
 library("FRESA.CAD")
 library(readxl)
 library(igraph)
-op <- par(no.readonly = TRUE)
 pander::panderOptions('digits', 3)
 pander::panderOptions('table.split.table', 400)
 pander::panderOptions('keep.trailing.zeros',TRUE)
@@ -39,8 +39,10 @@ pander::panderOptions('keep.trailing.zeros',TRUE)
 ## Loading BSWiMS Results
 
 ```{r}
-load("~/GitHub/BSWiMS/TADPOLE_BSWIMS_Results.RData")
+opo <- par(no.readonly = TRUE)
 
+load("~/GitHub/BSWiMS/TADPOLE_BSWIMS_Results.RData")
+op <- opo
 ```
 
 
@@ -50,7 +52,7 @@ load("~/GitHub/BSWiMS/TADPOLE_BSWIMS_Results.RData")
 Here we will diagnose ADAS13
 
 
-### Learning ADAS13
+## Learning ADAS13
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 LASSOml <- LASSO_1SE(ADAS13~.,TADPOLECrossMRITrain)
@@ -78,7 +80,7 @@ par(op)
 
 # Diagnosis MCI vs AD
 
-### Learning
+## Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 LASSODXml <- LASSO_1SE(DX~.,TADPOLE_DX_TRAIN,family="binomial")
@@ -113,13 +115,13 @@ par(op)
 
 # Diagnosis NL vs AD
 
-### Learning
+## Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
 LASSODXmlNLDE <- LASSO_1SE(DX~.,TADPOLE_DX_NLDE_TRAIN,family="binomial")
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TEST$DX,predict(LASSODXmlNLDE,TADPOLE_DX_NLDE_TEST)),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TEST$DX,predict(LASSODXmlNLDE,TADPOLE_DX_NLDE_TEST)),"NL vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -138,7 +140,7 @@ par(op)
 
 LASSODXmlNLDED <- LASSO_1SE(DX~.,TADPOLE_DX_NLDE_TRAIND,family="binomial")
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(LASSODXmlNLDED,TADPOLE_DX_NLDE_TESTD)),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TESTD$DX,predict(LASSODXmlNLDED,TADPOLE_DX_NLDE_TESTD)),"NL vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -151,7 +153,7 @@ par(op)
 # Prognosis MCI to AD Conversion
 
 
-### Learning
+## Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
@@ -193,7 +195,7 @@ par(op)
 ### Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-bConvmlD <- LASSO_1SE(Surv(TimeToEvent,status)~1,TADPOLE_Conv_TRAIND)
+bConvmlD <- LASSO_1SE(Surv(TimeToEvent,status)~.,TADPOLE_Conv_TRAIND)
 
 ptestl <- predict(bConvmlD,TADPOLE_Conv_TESTD,type="lp")
 boxplot(ptestl~TADPOLE_Conv_TEST$status)
@@ -221,5 +223,8 @@ par(op)
 
 ```
 
+### The End
+
+.
 
 

@@ -57,6 +57,8 @@ Here we will diagnose ADAS13
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 BESSml <- BESS(ADAS13~.,TADPOLECrossMRITrain)
 
+pander::pander(t(BESSml$selectedfeatures))
+
 prreg <- predictionStats_regression(cbind(TADPOLECrossMRITest$ADAS13,predict(BESSml,TADPOLECrossMRITest)),"ADAS13")
 pander::pander(prreg)
 par(op)
@@ -82,7 +84,7 @@ par(op)
 ## Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-TADPOLE_DX_TRAIN$DX <- as.factor(TADPOLE_DX_TRAIN$DX)
+#TADPOLE_DX_TRAIN$DX <- as.factor(TADPOLE_DX_TRAIN$DX)
 
 BESSDXml <- BESS(DX~.,TADPOLE_DX_TRAIN)
 pr <- predict(BESSDXml,TADPOLE_DX_TEST,type="response")
@@ -101,7 +103,6 @@ par(op)
 ### Decorrelated ML
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-TADPOLE_DX_TRAIND$DX <- as.factor(TADPOLE_DX_TRAIND$DX)
 
 BESSDXmlD <- BESS(DX~.,TADPOLE_DX_TRAIND)
 
@@ -122,10 +123,9 @@ par(op)
 ## Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-TADPOLE_DX_NLDE_TRAIN$DX <- as.factor(TADPOLE_DX_NLDE_TRAIN$DX)
 BESSDXmlNLDE <- BESS(DX~.,TADPOLE_DX_NLDE_TRAIN)
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TEST$DX,predict(BESSDXmlNLDE,TADPOLE_DX_NLDE_TEST)[,2]),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TEST$DX,predict(BESSDXmlNLDE,TADPOLE_DX_NLDE_TEST,type="response")),"NL vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -140,11 +140,10 @@ par(op)
 ### Learning 
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
-TADPOLE_DX_NLDE_TRAIND$DX <- as.factor(TADPOLE_DX_NLDE_TRAIND$DX)
 
 BESSDXmlNLDED <- BESS(DX~.,TADPOLE_DX_NLDE_TRAIND)
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TESTD$DX,predict(BESSDXmlNLDED,TADPOLE_DX_NLDE_TESTD)[,2]),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_NLDE_TESTD$DX,predict(BESSDXmlNLDED,TADPOLE_DX_NLDE_TESTD,type="response")),"NL vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
@@ -156,19 +155,21 @@ par(op)
 
 # Prognosis MCI to AD Conversion
 
+Cox modeling of MCI to Dementia Conversion
 
 ## Learning
+
+Learning COX and ploting performance
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
 
 bConvml <- BESS(Surv(TimeToEvent,status)~.,TADPOLE_Conv_TRAIN)
 
-ptestr <- predict(bConvml,TADPOLE_Conv_TEST)
-ptestl <- log(ptestr)
+ptestl <- predict(bConvml,TADPOLE_Conv_TEST,type="response")
+ptestr <- exp(ptestl)
 boxplot(ptestl~TADPOLE_Conv_TEST$status)
 boxplot(ptestr~TADPOLE_Conv_TEST$status)
-
 
 
 perdsurv <- cbind(TADPOLE_Conv_TEST$TimeToEvent,
@@ -192,19 +193,19 @@ par(op)
 
 ```
 
-
 ## Decorrelated
 
-
+The decorrelated data set
 ### Learning
+Learning
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 
 
 bConvmlD <- BESS(Surv(TimeToEvent,status)~.,TADPOLE_Conv_TRAIND)
 
-ptestr <- predict(bConvmlD,TADPOLE_Conv_TESTD)
-ptestl <- log(ptestr)
+ptestl <- predict(bConvmlD,TADPOLE_Conv_TESTD)
+ptestr <- exp(ptestl)
 boxplot(ptestl~TADPOLE_Conv_TEST$status)
 boxplot(ptestr~TADPOLE_Conv_TEST$status)
 

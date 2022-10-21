@@ -62,6 +62,7 @@ prreg <- predictionStats_regression(cbind(TADPOLECrossMRITest$ADAS13,predict(LAS
 pander::pander(prreg)
 par(op)
 
+
 ```
 
 
@@ -102,7 +103,7 @@ par(op)
 LASSODXmlD <- LASSO_1SE(DX~.,TADPOLE_DX_TRAIND,family="binomial")
 
 
-prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(LASSODXmlD,TADPOLE_DX_TESTD)),"NL vs Dementia")
+prBin <- predictionStats_binary(cbind(TADPOLE_DX_TESTD$DX,predict(LASSODXmlD,TADPOLE_DX_TESTD)),"MCI vs Dementia")
 pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)

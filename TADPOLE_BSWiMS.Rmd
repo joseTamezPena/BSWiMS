@@ -281,14 +281,22 @@ TADPOLECrossMRITrain <- TADPOLECrossMRI[trainSet,]
 TADPOLECrossMRITest <- TADPOLECrossMRI[-trainSet,]
 
 ```
+
 ### Learning ADAS13
 
 ```{r results = "asis", warning = FALSE, dpi=600, fig.height= 6.0, fig.width= 8.0}
 bml <- BSWiMS.model(ADAS13~.,TADPOLECrossMRITrain,maxTrainModelSize=50,NumberofRepeats = 20)
+plot(bml$bagging$avgLogPvalues,bml$bagging$bagged.model$baggingAnalysis$dMSE_values)
+
+
+#bml$bagging$bagged.model$wts.List
+#bml$bagging$bagged.model$baggingAnalysis$wts
+
 pander::pander(bml$bagging$Jaccard.SM)
 fs <- bml$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
 sm <- summary(bml)
+sm$MSE
 pander::pander(sm$coefficients)
 pander::pander(bml$univariate[bml$selectedfeatures,])
 
@@ -324,10 +332,10 @@ par(op)
 ```
 
 ### The  ADAS13 table
+
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$Rx2 <- (sm$coefficients$r.MSE-sm$coefficients$model.MSE)/sm$coefficients$r.MSE
 
 tableADAS13 <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -335,7 +343,7 @@ tableADAS13 <- sm$coefficients[clusterFeatures,
                                      "mean",
                                      "upper",
                                      "model.MSE",
-                                     "Rx2",
+                                     "%VarExp",
                                      "F.pvalue",
                                      "Frequency")]
 
@@ -360,7 +368,35 @@ tableADAS13$Description <- description[rownames(tableADAS13)]
 pander::pander(tableADAS13)
 
 
+
 ```
+
+### Cluster Predictions
+```{r}
+cluster1names <- names(nugget)[nugget==1]
+
+model1 <- lm(ADAS13~.,TADPOLECrossMRITrain[,c("ADAS13",cluster1names)])
+#model1$coefficients <- bml$bagging$bagged.model$coefficients[c("(Intercept)",cluster1names)]
+
+preo <- predict(bml,TADPOLECrossMRITest)
+pre1 <- predict(model1,TADPOLECrossMRITest)
+plot(preo,pre1)
+pander::pander(cor.test(preo,TADPOLECrossMRITest$ADAS13,method="spearman"))
+pander::pander(cor.test(pre1,TADPOLECrossMRITest$ADAS13,method="spearman"))
+
+
+#cluster2names <- names(nugget)[nugget==2]
+
+#model2 <- lm(ADAS13~.,TADPOLECrossMRITrain[,c("ADAS13",cluster2names)])
+#model2$coefficients <- bml$bagging$bagged.model$coefficients[c("(Intercept)",cluster2names)]
+
+#pre2 <- predict(model2,TADPOLECrossMRITest)
+#plot(preo,pre2)
+#plot(preo,0.5*(pre2+pre1))
+#pander::pander(cor.test(pre2,TADPOLECrossMRITest$ADAS13,method="spearman"))
+
+```
+
 
 ### Decorrelating training and testing sets
 
@@ -424,7 +460,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$Rx2 <- (sm$coefficients$r.MSE-sm$coefficients$model.MSE)/sm$coefficients$r.MSE
 
 tableADAS13D <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -432,7 +467,7 @@ tableADAS13D <- sm$coefficients[clusterFeatures,
                                      "mean",
                                      "upper",
                                      "model.MSE",
-                                     "Rx2",
+                                     "%VarExp",
                                      "F.pvalue",
                                      "Frequency")]
 
@@ -535,6 +570,7 @@ par(op)
 bDXml <- BSWiMS.model(DX~.,TADPOLE_DX_TRAIN,NumberofRepeats = 20)
 pander::pander(bDXml$bagging$Jaccard.SM)
 
+
 fs <- bDXml$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
 sm <- summary(bDXml)
@@ -546,6 +582,40 @@ pander::pander(prBin$aucs)
 pander::pander(prBin$accc)
 pander::pander(prBin$berror)
 pander::pander(prBin$sensitivity)
+par(op)
+
+plot(sm$coefficients$IDI,sm$coefficients$Delta.AUC)
+plot(sm$coefficients$NRI,sm$coefficients$Delta.AUC)
+
+```
+
+```{r}
+par(op)
+gplots::heatmap.2(log(100*bDXml$bagging$formulaNetwork+1),
+                  trace = "none",
+                  scale = "none",
+                  mar = c(10,10),
+                  col=rev(heat.colors(5)),
+                  main = "formulaNetwork",
+                  cexRow = 0.5,
+                  cexCol = 0.5,
+                  key.title=NA,
+                  key.xlab="Spearman Correlation",
+                  xlab="Feature", ylab="Feature")
+par(op)
+
+
+gplots::heatmap.2(log(100*bDXml$bagging$WformulaNetwork+1),
+                  trace = "none",
+                  scale = "none",
+                  mar = c(10,10),
+                  col=rev(heat.colors(5)),
+                  main = "Wnetwork",
+                  cexRow = 0.5,
+                  cexCol = 0.5,
+                  key.title=NA,
+                  key.xlab="Spearman Correlation",
+                  xlab="Feature", ylab="Feature")
 par(op)
 
 ```
@@ -580,7 +650,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableMCI_De <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -588,7 +657,7 @@ tableMCI_De <- sm$coefficients[clusterFeatures,
                                      "OR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 
@@ -679,7 +748,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableMCI_DeD <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -687,7 +755,7 @@ tableMCI_DeD <- sm$coefficients[clusterFeatures,
                                      "OR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 
@@ -800,6 +868,7 @@ par(op)
 bDXmlNLDE <- BSWiMS.model(DX~.,TADPOLE_DX_NLDE_TRAIN,NumberofRepeats = 20)
 pander::pander(bDXmlNLDE$bagging$Jaccard.SM)
 
+
 fs <- bDXmlNLDE$bagging$frequencyTable
 barplot(fs[order(-fs)],las=2,main="Selected Features",cex.names = 0.5)
 sm <- summary(bDXmlNLDE)
@@ -845,7 +914,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableNL_DE <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -853,7 +921,7 @@ tableNL_DE <- sm$coefficients[clusterFeatures,
                                      "OR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 
@@ -947,7 +1015,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableNL_DED <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -955,7 +1022,7 @@ tableNL_DED <- sm$coefficients[clusterFeatures,
                                      "OR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 
@@ -1128,7 +1195,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableMCI_to_Dem <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -1136,7 +1202,7 @@ tableMCI_to_Dem <- sm$coefficients[clusterFeatures,
                                      "HR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 
@@ -1249,7 +1315,6 @@ par(op)
 ```{r}
 
 clusterFeatures <- fc$names
-sm$coefficients$DeltaAUC <- (sm$coefficients$full.AUC-sm$coefficients$r.AUC)
 
 tableMCI_to_DemD <- sm$coefficients[clusterFeatures,
                                    c("Estimate",
@@ -1257,7 +1322,7 @@ tableMCI_to_DemD <- sm$coefficients[clusterFeatures,
                                      "HR",
                                      "upper",
                                      "full.AUC",
-                                     "DeltaAUC",
+                                     "Delta.AUC",
                                      "z.IDI",
                                      "Frequency")]
 

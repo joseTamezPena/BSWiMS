@@ -39,9 +39,9 @@ pander::panderOptions('keep.trailing.zeros',TRUE)
 ## The data set
 
 ```{r}
-TADPOLE_D1_D2 <- read.csv("~/GitHub/BSWiMS/Data/TADPOLE/TADPOLE_D1_D2.csv")
-TADPOLE_D1_D2_Dict <- read.csv("~/GitHub/BSWiMS/Data/TADPOLE/TADPOLE_D1_D2_Dict.csv")
-TADPOLE_D1_D2_Dict_LR <- as.data.frame(read_excel("~/GitHub/BSWiMS/Data/TADPOLE/TADPOLE_D1_D2_Dict_LR.xlsx",sheet = "LeftRightFeatures"))
+TADPOLE_D1_D2 <- read.csv("./Data/TADPOLE/TADPOLE_D1_D2.csv")
+TADPOLE_D1_D2_Dict <- read.csv("./Data/TADPOLE/TADPOLE_D1_D2_Dict.csv")
+TADPOLE_D1_D2_Dict_LR <- as.data.frame(read_excel("./Data/TADPOLE/TADPOLE_D1_D2_Dict_LR.xlsx",sheet = "LeftRightFeatures"))
 
 
 rownames(TADPOLE_D1_D2_Dict) <- TADPOLE_D1_D2_Dict$FLDNAME
@@ -1389,7 +1389,7 @@ pander::pander(tableMCI_to_DemD)
 
 ### Saving the enviroment
 ```{r}
-save.image("~/GitHub/BSWiMS/TADPOLE_BSWIMS_Results.RData")
+save.image("./TADPOLE_BSWIMS_Results.RData")
 
 
 ```
